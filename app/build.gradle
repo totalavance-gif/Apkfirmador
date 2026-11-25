@@ -24,6 +24,18 @@ android {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
+
+    // Los 3 jars de BouncyCastle repiten estos ficheros META-INF: no hacen falta en el APK.
+    packaging {
+        resources {
+            excludes += [
+                    'META-INF/BC2048KE.SF',
+                    'META-INF/BC2048KE.DSA',
+                    'META-INF/versions/9/OSGI-INF/MANIFEST.MF',
+                    'META-INF/versions/9/module-info.class'
+            ]
+        }
+    }
 }
 
 dependencies {
