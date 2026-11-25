@@ -16,6 +16,8 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      HAS_RELEASE_KEYSTORE: ${{ secrets.FIRMADOR_KEYSTORE_B64 != '' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -55,13 +57,13 @@ jobs:
           if-no-files-found: error
 
       - name: Decode release keystore
-        if: success() && startsWith(github.ref, 'refs/tags/v') && secrets.FIRMADOR_KEYSTORE_B64 != ''
+        if: success() && startsWith(github.ref, 'refs/tags/v') && env.HAS_RELEASE_KEYSTORE == 'true'
         env:
           KEYSTORE_B64: ${{ secrets.FIRMADOR_KEYSTORE_B64 }}
         run: echo "$KEYSTORE_B64" | base64 -d > release.jks
 
       - name: Build release APK (signed)
-        if: success() && startsWith(github.ref, 'refs/tags/v') && secrets.FIRMADOR_KEYSTORE_B64 != ''
+        if: success() && startsWith(github.ref, 'refs/tags/v') && env.HAS_RELEASE_KEYSTORE == 'true'
         env:
           FIRMADOR_STORE_PASS: ${{ secrets.FIRMADOR_STORE_PASS }}
           FIRMADOR_KEY_ALIAS: ${{ secrets.FIRMADOR_KEY_ALIAS }}
@@ -77,7 +79,7 @@ jobs:
           files: app/build/outputs/apk/debug/app-debug.apk
 
       - name: Publish signed release APK
-        if: success() && startsWith(github.ref, 'refs/tags/v') && secrets.FIRMADOR_KEYSTORE_B64 != ''
+        if: success() && startsWith(github.ref, 'refs/tags/v') && env.HAS_RELEASE_KEYSTORE == 'true'
         uses: softprops/action-gh-release@v2
         with:
           files: app/build/outputs/apk/release/app-release.apk
