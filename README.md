@@ -21,7 +21,8 @@ Igual que la plantilla: no compila en este entorno (build-tools x86_64), compila
 
 1. Crea el repo en GitHub y sube este proyecto a `main`.
 2. Actions construye el debug y publica el artefacto `firmador-debug`.
-3. Descarga el APK e instálalo.
+3. Para una versión instalable con enlace directo: `git tag v1.0 && git push origin v1.0`
+   y descarga el APK desde Releases.
 
 ```sh
 git init -b main
