@@ -68,6 +68,21 @@ public final class ApkSignHelper {
         return new VerifyReport(result.isVerified(), v1, v2, v3, errors);
     }
 
+    /** Primer certificado firmante del APK, o null si no está firmado. */
+    public static java.security.cert.X509Certificate firstSignerCert(File apk) {
+        try {
+            ApkVerifier.Result result = new ApkVerifier.Builder(apk).build().verify();
+            java.util.List<java.security.cert.X509Certificate> certs =
+                    result.getSignerCertificates();
+            if (certs != null && !certs.isEmpty()) {
+                return certs.get(0);
+            }
+        } catch (Exception ignored) {
+            // Sin firmantes legibles.
+        }
+        return null;
+    }
+
     /** Resultado legible de {@link #verify(File)}. */
     public static final class VerifyReport {
         public final boolean verified;

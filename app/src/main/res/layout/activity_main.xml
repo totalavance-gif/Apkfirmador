@@ -29,7 +29,28 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="4dp"
-            android:text="Elegir APK" />
+            android:text="Elegir APK (varios para lote)" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btnInspect"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Inspeccionar" />
+
+            <Button
+                android:id="@+id/btnCert"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Extraer cert" />
+        </LinearLayout>
 
         <TextView
             android:layout_width="wrap_content"
@@ -82,18 +103,75 @@
                 android:text="Borrar" />
         </LinearLayout>
 
-        <Button
-            android:id="@+id/btnExportKey"
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="4dp"
-            android:text="Exportar clave (.p12)" />
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btnExportKey"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Exportar (.p12/.jks)" />
+
+            <Button
+                android:id="@+id/btnSecurity"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Seguridad" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/tvSecurity"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="Sin protección."
+            android:textSize="12sp" />
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
-            android:text="3. Opciones"
+            android:text="3. Perfil (opcional)"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+
+        <Spinner
+            android:id="@+id/spinnerProfiles"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btnProfileSave"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Guardar perfil" />
+
+            <Button
+                android:id="@+id/btnProfileDel"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Borrar perfil" />
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="4. Opciones"
             android:textSize="18sp"
             android:textStyle="bold" />
 
@@ -102,7 +180,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:checked="true"
-            android:text="Firma v1 (JAR, compatible con Android antiguo)" />
+            android:text="Firma v1 (JAR, Android antiguo)" />
 
         <CheckBox
             android:id="@+id/cbV2"
@@ -125,6 +203,34 @@
             android:checked="true"
             android:text="Alinear ZIP (zipalign, .so a 16 KB)" />
 
+        <CheckBox
+            android:id="@+id/cbAlignOnly"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Solo alinear (sin firmar)" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <CheckBox
+                android:id="@+id/cbAutoSdk"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:checked="true"
+                android:text="minSdk auto" />
+
+            <EditText
+                android:id="@+id/etMinSdk"
+                android:layout_width="80dp"
+                android:layout_height="wrap_content"
+                android:enabled="false"
+                android:inputType="number"
+                android:text="24" />
+        </LinearLayout>
+
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -134,14 +240,14 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="minSdk del APK:" />
+                android:text="Salida:" />
 
             <EditText
-                android:id="@+id/etMinSdk"
-                android:layout_width="80dp"
+                android:id="@+id/etPattern"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:inputType="number"
-                android:text="24" />
+                android:singleLine="true"
+                android:text="{nombre}-firmado.apk" />
         </LinearLayout>
 
         <Button
@@ -149,7 +255,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
-            android:text="4. Firmar APK" />
+            android:text="5. Firmar APK" />
 
         <ProgressBar
             android:id="@+id/progressBar"
@@ -176,10 +282,32 @@
             android:textSize="16sp"
             android:textStyle="bold" />
 
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btnHistory"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Historial" />
+
+            <Button
+                android:id="@+id/btnExportLog"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Guardar log" />
+        </LinearLayout>
+
         <TextView
             android:id="@+id/tvLog"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
             android:background="#EEEEEE"
             android:padding="8dp"
             android:text=""

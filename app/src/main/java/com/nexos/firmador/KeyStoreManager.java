@@ -17,7 +17,10 @@ import java.security.SecureRandom;
 import java.security.cert.Certificate;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
+import java.security.spec.ECGenParameterSpec;
 import java.security.spec.PKCS8EncodedKeySpec;
+
+import javax.crypto.SecretKey;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -56,11 +59,34 @@ public final class KeyStoreManager {
     private static final List<String> IMPORT_TYPES = Arrays.asList("PKCS12", "JKS");
 
     private final File keysDir;
+    private final MasterKeyManager master;
+    private SecretKey sessionKey;
 
     public KeyStoreManager(File keysDir) throws IOException {
         this.keysDir = keysDir;
         if (!keysDir.isDirectory() && !keysDir.mkdirs()) {
             throw new IOException("No se pudo crear " + keysDir);
+        }
+        this.master = new MasterKeyManager(keysDir);
+    }
+
+    public MasterKeyManager getMaster() {
+        return master;
+    }
+
+    /** Clave de sesión tras desbloquear (null = bloqueado o sin maestra). */
+    public void setSessionKey(SecretKey key) {
+        this.sessionKey = key;
+    }
+
+    /** true si hay maestra configurada pero no se ha desbloqueado. */
+    public boolean isLocked() {
+        return master.isConfigured() && sessionKey == null;
+    }
+
+    private void requireUnlocked() {
+        if (isLocked()) {
+            throw new IllegalStateException("Desbloquea la contraseña maestra primero");
         }
     }
 
@@ -105,10 +131,31 @@ public final class KeyStoreManager {
 
     /** Genera una clave RSA nueva con certificado autofirmado válido {@code validityYears} años. */
     public void generate(String alias, int keySize, int validityYears) throws Exception {
-        validateAlias(alias);
         if (keySize != 2048 && keySize != 3072 && keySize != 4096) {
             throw new IllegalArgumentException("Tamaño de clave no soportado: " + keySize);
         }
+        KeyPairGenerator kpg = KeyPairGenerator.getInstance("RSA", PROVIDER);
+        kpg.initialize(keySize, new SecureRandom());
+        generateInternal(alias, kpg.generateKeyPair(), "SHA256withRSA",
+                validityYears, "RSA", keySize);
+    }
+
+    /** Genera una clave EC (ECDSA) nueva: curva {@code secp256r1} o {@code secp384r1}. */
+    public void generateEc(String alias, String curve, int validityYears) throws Exception {
+        if (!"secp256r1".equals(curve) && !"secp384r1".equals(curve)) {
+            throw new IllegalArgumentException("Curva no soportada: " + curve);
+        }
+        KeyPairGenerator kpg = KeyPairGenerator.getInstance("EC", PROVIDER);
+        kpg.initialize(new ECGenParameterSpec(curve), new SecureRandom());
+        String sigAlg = "secp384r1".equals(curve) ? "SHA384withECDSA" : "SHA256withECDSA";
+        int bits = "secp384r1".equals(curve) ? 384 : 256;
+        generateInternal(alias, kpg.generateKeyPair(), sigAlg, validityYears, "EC", bits);
+    }
+
+    private void generateInternal(String alias, KeyPair pair, String sigAlg,
+                                  int validityYears, String algorithm, int keySize) throws Exception {
+        requireUnlocked();
+        validateAlias(alias);
         if (validityYears < 1 || validityYears > 100) {
             throw new IllegalArgumentException("Validez fuera de rango (1-100 años): " + validityYears);
         }
@@ -116,10 +163,6 @@ public final class KeyStoreManager {
         if (dir.isDirectory()) {
             throw new IllegalArgumentException("Ya existe una clave llamada " + alias);
         }
-
-        KeyPairGenerator kpg = KeyPairGenerator.getInstance("RSA", PROVIDER);
-        kpg.initialize(keySize, new SecureRandom());
-        KeyPair pair = kpg.generateKeyPair();
 
         long now = System.currentTimeMillis();
         Date notBefore = new Date(now - 3600_000L);
@@ -134,7 +177,7 @@ public final class KeyStoreManager {
         builder.addExtension(Extension.basicConstraints, true, new BasicConstraints(false));
         builder.addExtension(Extension.subjectKeyIdentifier, false,
                 extUtils.createSubjectKeyIdentifier(pair.getPublic()));
-        ContentSigner signer = new JcaContentSignerBuilder("SHA256withRSA")
+        ContentSigner signer = new JcaContentSignerBuilder(sigAlg)
                 .setProvider(PROVIDER).build(pair.getPrivate());
         X509CertificateHolder holder = builder.build(signer);
         X509Certificate cert = new JcaX509CertificateConverter()
@@ -142,7 +185,7 @@ public final class KeyStoreManager {
         cert.verify(pair.getPublic());
 
         List<X509Certificate> chain = Collections.singletonList(cert);
-        saveKey(alias, pair.getPrivate(), chain, "RSA", keySize);
+        saveKey(alias, pair.getPrivate(), chain, algorithm, keySize);
     }
 
     /**
@@ -245,13 +288,20 @@ public final class KeyStoreManager {
         return new File(dirFor(alias), "private.pk8").isFile();
     }
 
-    /** Carga una clave para firmar. */
+    /** Carga una clave para firmar (descifra si está protegida). */
     public SigningKey load(String alias) throws Exception {
+        requireUnlocked();
         validateAlias(alias);
         File dir = dirFor(alias);
-        byte[] pkcs8 = readFully(new File(dir, "private.pk8"));
-        byte[] certDer = readFully(new File(dir, "cert-0.der"));
         Properties meta = readMeta(dir);
+        byte[] pkcs8 = readFully(new File(dir, "private.pk8"));
+        if ("true".equals(meta.getProperty("encrypted"))) {
+            if (sessionKey == null) {
+                throw new IllegalStateException("Clave cifrada: desbloquea primero");
+            }
+            pkcs8 = MasterKeyManager.decryptWith(sessionKey, pkcs8);
+        }
+        byte[] certDer = readFully(new File(dir, "cert-0.der"));
         String algorithm = meta.getProperty("algorithm", "RSA");
 
         KeyFactory kf = KeyFactory.getInstance(algorithm);
@@ -308,13 +358,68 @@ public final class KeyStoreManager {
         return sb.toString();
     }
 
+    /** Cifra con la sesión actual las claves que aún están en claro. Devuelve cuántas. */
+    public int encryptPlaintextKeys() throws Exception {
+        requireUnlocked();
+        if (sessionKey == null) {
+            throw new IllegalStateException("Sin sesión de maestra");
+        }
+        int done = 0;
+        for (String alias : listAliases()) {
+            File dir = dirFor(alias);
+            Properties meta = readMeta(dir);
+            if (!"true".equals(meta.getProperty("encrypted"))) {
+                byte[] plain = readFully(new File(dir, "private.pk8"));
+                writeFully(new File(dir, "private.pk8"),
+                        MasterKeyManager.encryptWith(sessionKey, plain));
+                Arrays.fill(plain, (byte) 0);
+                meta.setProperty("encrypted", "true");
+                writeMeta(dir, meta);
+                done++;
+            }
+        }
+        return done;
+    }
+
+    /** Deja en claro las claves cifradas (para quitar la maestra). Devuelve cuántas. */
+    public int decryptAllKeys() throws Exception {
+        if (sessionKey == null) {
+            throw new IllegalStateException("Sin sesión de maestra");
+        }
+        int done = 0;
+        for (String alias : listAliases()) {
+            File dir = dirFor(alias);
+            Properties meta = readMeta(dir);
+            if ("true".equals(meta.getProperty("encrypted"))) {
+                byte[] enc = readFully(new File(dir, "private.pk8"));
+                writeFully(new File(dir, "private.pk8"),
+                        MasterKeyManager.decryptWith(sessionKey, enc));
+                meta.setProperty("encrypted", "false");
+                writeMeta(dir, meta);
+                done++;
+            }
+        }
+        return done;
+    }
+
     private void saveKey(String alias, PrivateKey privateKey, List<X509Certificate> chain,
                          String algorithm, int keySize) throws IOException {
+        requireUnlocked();
         File dir = dirFor(alias);
         if (!dir.isDirectory() && !dir.mkdirs()) {
             throw new IOException("No se pudo crear " + dir);
         }
-        writeFully(new File(dir, "private.pk8"), privateKey.getEncoded());
+        byte[] priv = privateKey.getEncoded();
+        boolean encrypted = false;
+        if (sessionKey != null) {
+            try {
+                priv = MasterKeyManager.encryptWith(sessionKey, priv);
+                encrypted = true;
+            } catch (Exception e) {
+                throw new IOException("No se pudo cifrar la clave: " + e.getMessage(), e);
+            }
+        }
+        writeFully(new File(dir, "private.pk8"), priv);
         try {
             writeFully(new File(dir, "cert-0.der"), chain.get(0).getEncoded());
         } catch (Exception e) {
@@ -324,7 +429,31 @@ public final class KeyStoreManager {
         meta.setProperty("alias", alias);
         meta.setProperty("algorithm", algorithm);
         meta.setProperty("keySize", String.valueOf(keySize));
+        meta.setProperty("encrypted", String.valueOf(encrypted));
         meta.setProperty("created", String.valueOf(System.currentTimeMillis()));
+        writeMeta(dir, meta);
+    }
+
+    /** Exporta una clave a un almacén JKS clásico (sirve en Android Studio/apksigner). */
+    public void exportJks(String alias, File out, String password) throws Exception {
+        SigningKey key = load(alias);
+        if (password == null || password.length() < 6) {
+            throw new IllegalArgumentException("JKS exige 6 caracteres mínimo");
+        }
+        char[] pass = password.toCharArray();
+        KeyStore ks = KeyStore.getInstance("JKS");
+        ks.load(null, null);
+        ks.setKeyEntry(alias, key.privateKey, pass,
+                key.certificates.toArray(new Certificate[key.certificates.size()]));
+        OutputStream o = new FileOutputStream(out);
+        try {
+            ks.store(o, pass);
+        } finally {
+            o.close();
+        }
+    }
+
+    private void writeMeta(File dir, Properties meta) throws IOException {
         OutputStream out = new FileOutputStream(new File(dir, "meta.properties"));
         try {
             meta.store(out, "Firmador APK");
@@ -377,10 +506,16 @@ public final class KeyStoreManager {
     }
 
     private static int guessKeySize(PrivateKey key) {
-        // Solo informativo: longitud del módulo si es RSA.
+        // Solo informativo: módulo si es RSA, campo si es EC.
         try {
             java.security.interfaces.RSAKey rsa = (java.security.interfaces.RSAKey) key;
             return rsa.getModulus().bitLength();
+        } catch (ClassCastException e) {
+            // Sigue a EC.
+        }
+        try {
+            java.security.interfaces.ECKey ec = (java.security.interfaces.ECKey) key;
+            return ec.getParams().getCurve().getField().getFieldSize();
         } catch (ClassCastException e) {
             return 0;
         }
